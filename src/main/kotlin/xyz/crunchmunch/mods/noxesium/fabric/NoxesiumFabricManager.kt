@@ -15,6 +15,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
 import xyz.crunchmunch.mods.noxesium.fabric.event.NoxesiumPlayerEvents
+import xyz.crunchmunch.mods.noxesium.fabric.injected.EntityContextInjection
 import xyz.crunchmunch.mods.noxesium.fabric.rules.RemoteServerRule
 import xyz.crunchmunch.mods.noxesium.fabric.rules.RuleContainer
 import xyz.crunchmunch.mods.noxesium.fabric.rules.RuleFunction
@@ -26,11 +27,13 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
     val usingNoxesium: MutableSet<UUID> = Collections.synchronizedSet(mutableSetOf())
     val playerNoxesiumVersions: MutableMap<UUID, PlayerNoxesiumVersions> = Collections.synchronizedMap(mutableMapOf())
 
+    val serverRules: MutableMap<Int, RemoteServerRule<*>> = Collections.synchronizedMap(mutableMapOf())
+
     val serverRuleContainer = RuleContainer()
     val entityRuleContainer = RuleContainer()
 
-    val entityRules: MutableMap<Entity, RuleHolder> = Collections.synchronizedMap(WeakHashMap())
-    val playerRules: MutableMap<UUID, RuleHolder> = Collections.synchronizedMap(mutableMapOf())
+    val entityRuleHolders: MutableMap<Entity, RuleHolder> = Collections.synchronizedMap(WeakHashMap())
+    val playerRuleHolders: MutableMap<UUID, RuleHolder> = Collections.synchronizedMap(mutableMapOf())
 
     init {
         NoxesiumPlayerEvents.UPDATE_CLIENT_SETTINGS.register { player, settings ->
@@ -48,6 +51,13 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
             }
 
             this.usingNoxesium.add(player.uuid)
+            val rules = this.playerRuleHolders.computeIfAbsent(player.uuid) { RuleHolder() }.apply {
+                this.putAll(serverRules)
+            }
+
+            ServerPlayNetworking.send(player, ClientboundChangeServerRulesPacket(
+                IntImmutableList(rules.keys.toIntArray()), rules.values.map { it.value }.toList()
+            ))
 
             NoxesiumPlayerEvents.AFTER_NOXESIUM_INIT.invoker().onPlayerEvent(player)
         }
@@ -63,7 +73,7 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
         }
 
         EntityTrackingEvents.START_TRACKING.register { trackedEntity, player ->
-            val rules = this.entityRules[trackedEntity] ?: return@register
+            val rules = this.entityRuleHolders[trackedEntity] ?: return@register
             if (player.isUsingNoxesium) {
                 val updatedRules = rules.filter { this.entityRuleContainer.isAvailable(it.key, this.getProtocolVersion(player) ?: -1) }
                     .ifEmpty { null } ?: return@register
@@ -71,24 +81,28 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
                 ServerPlayNetworking.send(player, ClientboundSetExtraEntityDataPacket(
                     trackedEntity.id,
                     IntImmutableList(updatedRules.keys.toIntArray()),
-                    updatedRules.values.toList()
-                ))
+                    updatedRules.values.map { it.value }.toList()
+                ).apply {
+                    (this as EntityContextInjection).entity = trackedEntity
+                })
             }
         }
 
         ServerTickEvents.END_SERVER_TICK.register { server ->
-            synchronized(this.playerRules) {
-                for ((uuid, rules) in this.playerRules) {
+            synchronized(this.playerRuleHolders) {
+                for ((uuid, rules) in this.playerRuleHolders) {
                     val player = server.playerList.getPlayer(uuid) ?: continue
 
                     if (rules.needsUpdate) {
                         updateRules(player, rules)
                     }
+
+                    rules.markAllUpdated()
                 }
             }
 
-            synchronized(this.entityRules) {
-                for ((entity, rules) in this.entityRules) {
+            synchronized(this.entityRuleHolders) {
+                for ((entity, rules) in this.entityRuleHolders) {
                     if (!rules.needsUpdate)
                         continue
 
@@ -100,8 +114,10 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
                             ServerPlayNetworking.send(player, ClientboundSetExtraEntityDataPacket(
                                 entity.id,
                                 IntImmutableList(updatedRules.keys.toIntArray()),
-                                updatedRules.values.toList()
-                            ))
+                                updatedRules.values.map { it.value }.toList()
+                            ).apply {
+                                (this as EntityContextInjection).entity = entity
+                            })
                         }
                     }
 
@@ -111,7 +127,7 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
         }
 
         ServerEntityEvents.ENTITY_UNLOAD.register { entity, world ->
-            this.entityRules.remove(entity)
+            this.entityRuleHolders.remove(entity)
         }
     }
 
@@ -121,17 +137,21 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
         val rulesToUpdate = rules.filter { it.value.changePending }
 
         ServerPlayNetworking.send(player, ClientboundChangeServerRulesPacket(
-            IntImmutableList(rulesToUpdate.keys.toIntArray()), rulesToUpdate.values.toList()
+            IntImmutableList(rulesToUpdate.keys.toIntArray()), rulesToUpdate.values.map { it.value }.toList()
         ))
     }
 
     val ServerPlayer.isUsingNoxesium: Boolean
         get() = usingNoxesium.contains(this.uuid)
 
+    fun <T : Any> getGlobalServerRule(rule: RuleFunction<T>): RemoteServerRule<T>? {
+        return this.serverRuleContainer.create(rule.index, this.serverRules, NoxesiumFeature.CUSTOM_GLOW_COLOR.minProtocolVersion)
+    }
+
     fun <T : Any> getServerRule(player: ServerPlayer, rule: RuleFunction<T>): RemoteServerRule<T>? = getServerRule(player, rule.index)
 
     override fun <T : Any> getServerRule(player: ServerPlayer, index: Int): RemoteServerRule<T>? {
-        return this.playerRules.computeIfAbsent(player.uuid) { RuleHolder() }.let { holder ->
+        return this.playerRuleHolders.computeIfAbsent(player.uuid) { RuleHolder() }.let { holder ->
             this.serverRuleContainer.create(index, holder, this.getProtocolVersion(player) ?: -1)
         }
     }
@@ -142,7 +162,7 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
 
     /** Returns the given [ruleIndex] for [entity]. */
     fun <T : Any> getEntityRule(entity: Entity, ruleIndex: Int): RemoteServerRule<T>? =
-        this.entityRules.computeIfAbsent(entity) { RuleHolder() }.let { holder ->
+        this.entityRuleHolders.computeIfAbsent(entity) { RuleHolder() }.let { holder ->
             this.entityRuleContainer.create(ruleIndex, holder)
         }
 

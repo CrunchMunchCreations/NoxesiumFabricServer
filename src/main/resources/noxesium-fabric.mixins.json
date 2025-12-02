@@ -4,6 +4,8 @@
     "package": "xyz.crunchmunch.mods.noxesium.fabric.mixin",
     "compatibilityLevel": "JAVA_21",
     "mixins": [
+        "ClientboundChangeServerRulesPacketMixin",
+        "ClientboundSetExtraEntityDataPacketMixin",
         "NoxesiumModAccessor",
         "NoxesiumPacketsAccessor",
         "ServerboundClientInformationPacketMixin"
