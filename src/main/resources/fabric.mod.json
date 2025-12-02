@@ -1,0 +1,32 @@
+{
+    "schemaVersion": 1,
+    "id": "noxesium-fabric",
+    "version": "${version}",
+    "name": "Noxesium Fabric Server API",
+    "description": "",
+    "authors": [
+        "BluSpring",
+        "CrunchMunch Creations"
+    ],
+    "contact": {
+        "repo": "https://github.com/CrunchMunchCreations/NoxesiumFabricServer"
+    },
+    "license": "MIT",
+    "icon": "icon.png",
+    "environment": "*",
+    "entrypoints": {
+        "main": [
+            "xyz.crunchmunch.mods.noxesium.fabric.NoxesiumFabricServer"
+        ]
+    },
+    "mixins": [
+        "noxesium-fabric.mixins.json"
+    ],
+    "depends": {
+        "fabricloader": ">=${loader_version}",
+        "fabric-api": "*",
+        "minecraft": "${minecraft_version}",
+        "fabric-language-kotlin": "*"
+    },
+    "accessWidener": "noxesium-fabric.accesswidener"
+}
