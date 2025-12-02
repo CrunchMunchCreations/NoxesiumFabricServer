@@ -5,7 +5,8 @@
     "compatibilityLevel": "JAVA_21",
     "mixins": [
         "NoxesiumModAccessor",
-        "NoxesiumPacketsAccessor"
+        "NoxesiumPacketsAccessor",
+        "ServerboundClientInformationPacketMixin"
     ],
     "injectors": {
         "defaultRequire": 1
