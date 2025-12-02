@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.2.20"
     id("fabric-loom") version "1.13-SNAPSHOT"
     id("maven-publish")
+    id("com.gradleup.shadow") version "9.2.1"
 }
 
 group = "xyz.crunchmunch"
@@ -23,6 +24,8 @@ repositories {
     maven("https://maven.noxcrew.com/public")
 }
 
+val shadow = configurations.getByName("shadow")
+
 dependencies {
     minecraft("com.mojang:minecraft:${property("minecraft_version")}")
     mappings(loom.layered {
@@ -41,7 +44,7 @@ dependencies {
     api(include("com.github.Phyrone:brigardier-kotlin:${property("brigadier_kotlin_version")}")!!)
 
     include(modApi("com.noxcrew.noxesium:api:${rootProject.property("noxesium_version")}")!!)
-    include(modApi("com.noxcrew.noxesium:common:${rootProject.property("noxesium_version")}")!!)
+    shadow(modApi("com.noxcrew.noxesium:common:${rootProject.property("noxesium_version")}")!!)
     modRuntimeOnly("com.noxcrew.noxesium:fabric:${rootProject.property("noxesium_version")}")
 }
 
@@ -49,6 +52,16 @@ tasks {
     // Configure remapJar to run when invoking the build task
     named("assemble", DefaultTask::class.java) {
         dependsOn(named("remapJar").get())
+    }
+
+    shadowJar {
+        configurations = listOf(shadow)
+        archiveClassifier = "dev-shadow"
+    }
+
+    remapJar {
+        dependsOn("shadowJar")
+        this.inputFile.set(shadowJar.get().archiveFile)
     }
 
     processResources {
