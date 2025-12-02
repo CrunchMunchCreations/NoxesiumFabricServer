@@ -12,6 +12,10 @@ class NoxesiumFabricServer : ModInitializer {
     override fun onInitialize() {
         initNoxesium()
 
+        ServerPlayNetworking.registerGlobalReceiver(NoxesiumPackets.SERVER_CLIENT_INFO.type) { packet, ctx ->
+            NoxesiumPlayerEvents.INIT_WITH_NOXESIUM.invoker().onPlayerInitWithNoxesium(ctx.player(), packet.protocolVersion, packet.versionString)
+        }
+
         ServerPlayNetworking.registerGlobalReceiver(NoxesiumPackets.SERVER_QIB_TRIGGERED.type) { packet, ctx ->
             val entity = ctx.player().level().getEntity(packet.entityId)
 
