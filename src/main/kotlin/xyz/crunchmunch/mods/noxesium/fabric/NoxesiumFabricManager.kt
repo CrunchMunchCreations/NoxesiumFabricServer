@@ -125,9 +125,6 @@ object NoxesiumFabricManager : NoxesiumServerManager<ServerPlayer> {
         ))
     }
 
-    val ServerPlayer.clientSettings: ClientSettings?
-        get() = playerSettings[this.uuid]
-
     val ServerPlayer.isUsingNoxesium: Boolean
         get() = usingNoxesium.contains(this.uuid)
 
